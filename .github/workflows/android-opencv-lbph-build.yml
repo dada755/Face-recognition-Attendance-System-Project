@@ -124,6 +124,7 @@ jobs:
             -DANDROID_STL=c++_shared \
             -DOPENCV_EXTRA_MODULES_PATH="$RUNNER_TEMP/opencv-src/opencv_contrib/modules" \
             -DBUILD_LIST=core,imgproc,objdetect,calib3d,photo,face \
+            -DBUILD_SHARED_LIBS=ON \
             -DBUILD_ANDROID_PROJECTS=OFF \
             -DBUILD_ANDROID_EXAMPLES=OFF \
             -DBUILD_TESTS=OFF \
@@ -149,20 +150,35 @@ jobs:
 
       - name: Verify native LBPH symbol
         run: |
+          set -euo pipefail
+
+          echo "Searching Android OpenCV shared libraries..."
+
           find "$RUNNER_TEMP/opencv-build" \
             -type f \
-            \( -name "libopencv_face.so" -o -name "*opencv_face*.so" \) \
+            \( -name "libopencv_face.so" -o -name "libopencv_*.so" \) \
             -print
 
-          FACE_LIB="$(find "$RUNNER_TEMP/opencv-build" \
-            -type f -name "libopencv_face.so" | head -1)"
+          FACE_SO="$(find "$RUNNER_TEMP/opencv-build" \
+            -type f -name "libopencv_face.so" | head -n 1)"
 
-          test -n "$FACE_LIB"
-          file "$FACE_LIB"
+          test -n "$FACE_SO"
+          test -f "$FACE_SO"
 
-          nm -D "$FACE_LIB" 2>/dev/null \
-            | grep 'LBPHFaceRecognizer' \
-            | head -20
+          echo "FACE_SO=$FACE_SO"
+
+          readelf -h "$FACE_SO" | grep -E "Class|Machine|Type"
+          readelf -d "$FACE_SO" | grep NEEDED || true
+
+          if nm -D -C "$FACE_SO" | grep -F \
+            'cv::face::LBPHFaceRecognizer::create'; then
+            echo "LBPH_SYMBOL=PASS"
+          else
+            echo "LBPH_SYMBOL=FAIL"
+            exit 1
+          fi
+
+          echo "NATIVE_LBPH_VERIFICATION=PASS"
 
       - name: Package build artifacts
         run: |
